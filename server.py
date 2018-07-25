@@ -11,8 +11,8 @@ class CServer:
         self.in_msg = Queue()    # обычная очередь сообщений
         self.conn_msg = Queue()  # сообщения до авторизации
         self.out_msg = Queue()   # сообщения для отправки
-        self.clients = {}
-        self.cl_non_auth = []
+        self.clients = {}        # авторизованные клиенты
+        self.cl_non_auth = []    # не авторизованные клиенты
 
     def create_sock(self):
         sock = socket.socket()
@@ -21,65 +21,77 @@ class CServer:
         sock.settimeout(0.2)
         return sock
 
-    def recv_conn(self):
-        while True:
-            for sock_cl in self.cl_non_auth:
-                data = sock_cl.recv(1024)
-                msg = f_decode(data)
-                self.conn_msg.put({sock_cl: msg})
+    def disconnect_cl(self, sock_cl, addr):
+        sock_cl.close()
+        print('{} не прислал корректный пресенс и был отключен'.format(addr))
+
+    def recv_conn(self, sock_cl, addr):
+        sock_cl.settimeout(0.5)
+        try:
+            data = sock_cl.recv(1024)
+        except socket.timeout:
+            self.disconnect_cl(sock_cl, addr)
+            return None
+        else:
+            msg = f_decode(data)
+            return msg
+
+    def meeting(self, sock_cl, addr):
+        msg = self.recv_conn(sock_cl, addr)
+        if msg is not None:
+            if msg['action'] == 'presence':
+                self.clients[msg['user']['account_name']] = sock_cl
+                print('{} успешно подключился'.format(msg['user']['account_name']))
+            else:
+                self.disconnect_cl(sock_cl, addr)
 
     def recv_msg(self):
         while True:
             for sock_cl in self.clients.values():
-                data = sock_cl.recv(1024)
-                msg = f_decode(data)
-                self.in_msg.put({sock_cl: msg})
-
-    def tr_conn_recv(self):
-        t = Thread(target=self.recv_conn)
-        t.start()
-
-    def tr_recv(self):
-        t = Thread(target=self.recv_msg)
-        t.start()
-
-    def prep_con_resp(self):
-        dict_data = self.conn_msg.get()
-        for sock_from, msg in dict_data:
-            if msg['action'] == 'presence':
-                self.clients[msg['name']] = sock_from
+                sock_cl.settimeout(0.2)
+                try:
+                    data = sock_cl.recv(1024)
+                except socket.timeout:
+                    pass
+                else:
+                    msg = f_decode(data)
+                    self.in_msg.put(msg)
 
     def prep_responce(self):
-        dict_data = self.in_msg.get()
-        for sock_from, msg in dict_data:
-            if msg['in'] in self.clients:
-                sock_out = self.clients[msg['in']]
-                self.out_msg.put({sock_out: msg})
+        msg = self.in_msg.get()
+        if msg['to'] in self.clients:
+            sock_out = self.clients[msg['to']]
+            self.out_msg.put({sock_out: msg})
 
-    def send_msg(self, sock):
+    def send_msg(self):
         while True:
             data = self.out_msg.get()
-            j_data = json.dumps(data)
-            byte_data = j_data.encode()
-            sock.send(byte_data)
+            sock_cl, msg = data.popitem()
+            bj_data = f_encode(msg)
+            sock_cl.send(bj_data)
 
     def loop_connect(self, sock_serv):
         while True:
             try:
-                addr, conn = sock_serv.accept()
-                self.cl_non_auth.append(conn)
+                conn, addr = sock_serv.accept()
             except socket.timeout:
                 pass
-            finally:
-                self.prep_con_resp()
-                self.prep_responce()
+            else:
+                self.meeting(conn, addr)
 
 
 if __name__ == '__main__':
     srv = CServer()
     sock_s = srv.create_sock()
-    srv.tr_conn_recv()
-    srv.tr_recv()
-    while True:
-        srv.loop_connect(sock_s)
 
+    thr_recv = Thread(target=srv.recv_msg, daemon=True)
+    thr_recv.start()
+
+    thr_conn = Thread(target=srv.loop_connect, args=(sock_s,), daemon=True)
+    thr_conn.start()
+
+    thr_send = Thread(target=srv.send_msg, daemon=True)
+    thr_send.start()
+
+    while True:
+        srv.prep_responce()
