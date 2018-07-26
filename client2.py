@@ -19,7 +19,7 @@ class CClient:
         while True:
             bj_msg = serv_sock.recv(1024)
             msg = f_decode(bj_msg)
-            print('От{}: {}'.format(msg['from'], msg['message']))
+            print('От {}: {}'.format(msg['from'], msg['message']))
 
     def meeting(self, serv_sock):
         msg = f_presence(self.name)

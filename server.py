@@ -12,7 +12,7 @@ class CServer:
         self.conn_msg = Queue()  # сообщения до авторизации
         self.out_msg = Queue()   # сообщения для отправки
         self.clients = {}        # авторизованные клиенты
-        self.cl_non_auth = []    # не авторизованные клиенты
+        self.cl_sock = []        # сокеты авторизованных клиентов
 
     def create_sock(self):
         sock = socket.socket()
@@ -41,13 +41,14 @@ class CServer:
         if msg is not None:
             if msg['action'] == 'presence':
                 self.clients[msg['user']['account_name']] = sock_cl
+                self.cl_sock.append(sock_cl)
                 print('{} успешно подключился'.format(msg['user']['account_name']))
             else:
                 self.disconnect_cl(sock_cl, addr)
 
     def recv_msg(self):
         while True:
-            for sock_cl in self.clients.values():
+            for sock_cl in self.cl_sock[:]:
                 sock_cl.settimeout(0.2)
                 try:
                     data = sock_cl.recv(1024)
