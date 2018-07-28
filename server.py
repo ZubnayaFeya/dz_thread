@@ -13,6 +13,7 @@ class CServer:
         self.out_msg = Queue()   # сообщения для отправки
         self.clients = {}        # авторизованные клиенты
         self.cl_sock = []        # сокеты авторизованных клиентов
+        self.revert_client = {}
 
     def create_sock(self):
         sock = socket.socket()
@@ -41,10 +42,17 @@ class CServer:
         if msg is not None:
             if msg['action'] == 'presence':
                 self.clients[msg['user']['account_name']] = sock_cl
+                self.revert_client[sock_cl] = msg['user']['account_name']
                 self.cl_sock.append(sock_cl)
                 print('{} успешно подключился'.format(msg['user']['account_name']))
             else:
                 self.disconnect_cl(sock_cl, addr)
+
+    def check_cl_is_online(self, cl_sock):
+        self.cl_sock.remove(cl_sock)
+        name = self.revert_client[cl_sock]
+        self.clients.pop(name)
+        self.revert_client.pop(cl_sock)
 
     def recv_msg(self):
         while True:
@@ -55,8 +63,16 @@ class CServer:
                 except socket.timeout:
                     pass
                 else:
-                    msg = f_decode(data)
-                    self.in_msg.put(msg)
+                    if data == b'' and sock_cl.fileno() == 5:
+                        print(sock_cl.fileno())
+                        self.check_cl_is_online(sock_cl)
+                        break
+                    try:
+                        msg = f_decode(data)
+                        self.in_msg.put(msg)
+                    except Exception as e:
+                        print(e)
+                        self.check_cl_is_online(sock_cl)
 
     def prep_responce(self):
         msg = self.in_msg.get()

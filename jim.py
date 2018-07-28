@@ -2,8 +2,11 @@ import json
 
 
 def f_decode(bjmessage):
-    jmessage = bjmessage.decode('utf-8')
-    message = json.loads(jmessage)
+    try:
+        jmessage = bjmessage.decode('utf-8')
+        message = json.loads(jmessage)
+    except ValueError:
+        message = None
     return message
 
 
